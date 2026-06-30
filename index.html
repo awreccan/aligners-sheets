@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0e1512" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#1a7f5a" media="(prefers-color-scheme: light)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="22">
+<title>22 · Aligners</title>
+<link rel="manifest" href="./manifest.json">
+<link rel="icon" href="./icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="./icons/icon-180.png">
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+<noscript><p style="padding:24px;font-family:sans-serif">This app needs JavaScript.</p></noscript>
+
+<!-- ============ SETUP SCREEN (first run / settings) ============ -->
+<main id="setup" class="setup" hidden>
+  <div class="setup-card">
+    <div class="brand setup-brand">22</div>
+    <h1>Set up sync</h1>
+    <p class="setup-lead">“22” stores your wear log in your own private <strong>Google Sheet</strong> so your phone, Siri, and the app all stay in sync — the Sheet is the database, and you can open it and fix the log by hand anytime. One-time setup.</p>
+
+    <ol class="setup-steps">
+      <li>Create the Sheet + Apps Script web app once — full steps are in
+        <a id="deployHelp" href="#">backend/DEPLOY.md →</a>
+        <span class="hint">(create a Sheet → Extensions → Apps Script → paste Code.gs → Deploy as Web App → copy the <code>/exec</code> URL)</span>
+      </li>
+      <li>Paste the Web app URL here:
+        <input id="setupUrl" type="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" autocapitalize="off" spellcheck="false">
+      </li>
+    </ol>
+
+    <div class="setup-actions">
+      <button id="setupConnect" class="solid-btn">Connect &amp; start</button>
+    </div>
+    <details class="setup-advanced">
+      <summary>My script needs a token</summary>
+      <p class="hint">If you set a <code>SHARED_TOKEN</code> in <code>Code.gs</code>, paste it here too.</p>
+      <input id="setupToken" type="text" placeholder="shared token (optional)" autocomplete="off" spellcheck="false">
+    </details>
+    <div id="setupStatus" class="setup-status"></div>
+    <p class="setup-foot">The <code>/exec</code> URL is stored only on this device and is the secret that grants access to your Sheet — keep it private, like a password.</p>
+  </div>
+</main>
+
+<!-- ============ MAIN APP ============ -->
+<main id="app" class="app" aria-live="polite" hidden>
+
+  <header class="topbar">
+    <div class="brand">22</div>
+    <div class="topbar-right">
+      <span class="conn" id="conn" title="Connection">●</span>
+      <button id="settingsBtn" class="icon-btn" title="Settings" aria-label="Settings">⚙</button>
+    </div>
+  </header>
+
+  <section class="hero">
+    <button id="toggle" class="ring-btn" aria-label="Toggle aligners in or out">
+      <svg class="ring" viewBox="0 0 240 240" aria-hidden="true">
+        <circle class="ring-track" cx="120" cy="120" r="108"/>
+        <circle id="ringFill" class="ring-fill" cx="120" cy="120" r="108" transform="rotate(-90 120 120)"/>
+      </svg>
+      <span class="ring-inner">
+        <span id="stateLabel" class="state-label">IN</span>
+        <span id="bigValue" class="big-value">2h 00m</span>
+        <span id="bigCaption" class="big-caption">out-budget left</span>
+      </span>
+    </button>
+    <p id="actionHint" class="action-hint">Tap when you take them out</p>
+  </section>
+
+  <section class="stats">
+    <div class="stat"><div class="stat-value" id="wornToday">0h 00m</div><div class="stat-label">worn today</div></div>
+    <div class="stat"><div class="stat-value" id="outToday">0m</div><div class="stat-label">out today</div></div>
+    <div class="stat"><div class="stat-value" id="targetLabel">22h</div><div class="stat-label">daily target</div></div>
+  </section>
+
+  <section class="history">
+    <h2 class="section-title">Last 7 days</h2>
+    <div id="historyStrip" class="history-strip"></div>
+  </section>
+
+  <section class="voice-card">
+    <h2 class="section-title">Hands-free</h2>
+    <p>Say <strong>“Hey Siri, Aligners off”</strong> when you eat and <strong>“Aligners on”</strong> when you’re done. Set up the two Shortcuts once to read &amp; write this same Sheet — <a id="shortcutHelp" href="#" >how →</a></p>
+  </section>
+
+  <section class="edit">
+    <button id="editToggle" class="ghost-btn">Fix today’s log</button>
+    <div id="editPanel" class="edit-panel" hidden>
+      <p class="hint">Add a missed event at a specific time, or remove a wrong one.</p>
+      <div class="edit-row">
+        <select id="editType"><option value="OUT">Took out</option><option value="IN">Put in</option></select>
+        <input id="editTime" type="datetime-local">
+        <button id="editAdd" class="solid-btn">Add</button>
+      </div>
+      <ul id="eventList" class="event-list"></ul>
+    </div>
+  </section>
+
+  <footer class="foot"><span id="lastSync">—</span></footer>
+</main>
+
+<script src="./wear-core.js"></script>
+<script src="./sheet-store.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>

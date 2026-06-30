@@ -1,0 +1,21 @@
+{
+  "name": "22 — Aligner Wear Tracker",
+  "short_name": "22",
+  "description": "Keep your clear aligners in for 22 hours a day. Voice logging + reliable reinsert reminders.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0e1512",
+  "theme_color": "#1a7f5a",
+  "categories": ["health", "lifestyle", "medical"],
+  "icons": [
+    { "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Aligners Off", "short_name": "Off", "url": "./index.html?action=out" },
+    { "name": "Aligners On", "short_name": "On", "url": "./index.html?action=in" }
+  ]
+}
