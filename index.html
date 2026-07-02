@@ -23,28 +23,23 @@
   <div class="setup-card">
     <div class="brand setup-brand">22</div>
     <h1>Set up sync</h1>
-    <p class="setup-lead">“22” stores your wear log in your own private <strong>Google Sheet</strong> so your phone, Siri, and the app all stay in sync — the Sheet is the database, and you can open it and fix the log by hand anytime. One-time setup.</p>
+    <p class="setup-lead">“22” stores your wear log in your own private <strong>Google Sheet</strong> so your phone, Siri, and the app all stay in sync — the Sheet is the database, and you can open it and fix the log by hand anytime. No code, no setup — just paste your Sheet link.</p>
 
     <ol class="setup-steps">
-      <li>Create the Sheet + Apps Script web app once — full steps are in
-        <a id="deployHelp" href="#">backend/DEPLOY.md →</a>
-        <span class="hint">(create a Sheet → Extensions → Apps Script → paste Code.gs → Deploy as Web App → copy the <code>/exec</code> URL)</span>
+      <li>Make a blank Google Sheet at <a href="https://sheets.new" target="_blank" rel="noopener">sheets.new</a>.</li>
+      <li>Click <strong>Share</strong> → under <em>General access</em> pick <strong>“Anyone with the link”</strong> and set it to <strong>Editor</strong> → <strong>Copy link</strong>.
+        <span class="hint">(<a id="deployHelp" href="#">why Editor?</a> — so the app can write your wear log into it.)</span>
       </li>
-      <li>Paste the Web app URL here:
-        <input id="setupUrl" type="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <li>Paste the Sheet link here:
+        <input id="setupUrl" type="url" placeholder="https://docs.google.com/spreadsheets/d/…" autocomplete="off" autocapitalize="off" spellcheck="false">
       </li>
     </ol>
 
     <div class="setup-actions">
       <button id="setupConnect" class="solid-btn">Connect &amp; start</button>
     </div>
-    <details class="setup-advanced">
-      <summary>My script needs a token</summary>
-      <p class="hint">If you set a <code>SHARED_TOKEN</code> in <code>Code.gs</code>, paste it here too.</p>
-      <input id="setupToken" type="text" placeholder="shared token (optional)" autocomplete="off" spellcheck="false">
-    </details>
     <div id="setupStatus" class="setup-status"></div>
-    <p class="setup-foot">The <code>/exec</code> URL is stored only on this device and is the secret that grants access to your Sheet — keep it private, like a password.</p>
+    <p class="setup-foot">Your Sheet link is stored only on this device. Anyone who has the link can edit that Sheet, so keep it private — like a password.</p>
   </div>
 </main>
 

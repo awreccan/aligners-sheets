@@ -1,26 +1,23 @@
 /*
- * sheet-store.js — Google-Sheets data layer for "22" (v3).
+ * sheet-store.js — Google-Sheets data layer for "22" (v3), KIT model.
  *
- * The shared event log lives in a single Google Sheet. An Apps Script Web App
- * (backend/Code.gs), deployed "Execute as: Me" / "Who has access: Anyone",
- * exposes that Sheet as a CORS-open JSON API via ContentService. Both the PWA
- * (browser fetch) and an iOS Shortcut read/write it through that one /exec URL.
- * No custom server, no DB host — the Sheet IS the database, human-editable.
+ * The DEV hosts ONE stateless relay (backend/Code.gs, deployed once). The USER
+ * only pastes their own plain Google Sheet URL. This layer talks to the dev's
+ * relay and forwards the user's Sheet URL as ?sheet_url=… on every request, so
+ * the relay opens THAT user's Sheet (openByUrl) and reads/writes their log there.
+ * No per-user Apps Script, no /exec for the user — just a Sheet link.
  *
- * The PWA stores ONLY the /exec URL (the unguessable secret) on-device. It GETs
- * the state ({log, v}) and POSTs the merged event log back.
+ * The PWA stores on-device: the dev relay URL (baked-in default) + the user's
+ * own Sheet URL. It GETs the state ({log,v}) and POSTs the merged event log.
  *
- * Two CORS gotchas this layer bakes in (proven by keep-in-touch):
+ * Two CORS gotchas baked in (proven by keep-in-touch):
  *   1. POST sends a text/plain body (no custom Content-Type header) so the
- *      browser issues NO CORS preflight — Apps Script web apps cannot answer
- *      an OPTIONS preflight, so any application/json POST would be blocked.
- *   2. GET on /exec 302-redirects to script.googleusercontent.com; if the
- *      browser isn't signed into the right Google account the redirected body
- *      is login/error HTML, and a bare res.json() throws an opaque SyntaxError.
- *      We read .text() and JSON.parse it ourselves, surfacing a clear message.
+ *      browser issues NO CORS preflight — Apps Script can't answer OPTIONS.
+ *   2. GET on /exec 302-redirects to script.googleusercontent.com; a non-JSON
+ *      body (login/error HTML) is surfaced as a clear error, not an opaque
+ *      SyntaxError.
  *
- * Apps Script caches nothing aggressively, but intermediaries can — so we
- * ALWAYS cache-bust reads (mirrors the gist-store contract).
+ * Reads are ALWAYS cache-busted (mirrors the gist-store contract).
  *
  * Universal module: CommonJS (Node/tests) + browser global (window.SheetStore).
  */
@@ -31,44 +28,52 @@
   'use strict';
 
   const SCHEMA_VERSION = 1;
-  const PROJECT = 'aligners';   // single project tab; multi-project isn't needed
 
   // Allow tests to inject a fetch + a deterministic cache-buster.
   function makeStore(opts) {
     opts = opts || {};
     const _fetch = opts.fetch || (typeof fetch !== 'undefined' ? fetch.bind(globalThis) : null);
-    // cacheBuster() must return a changing value; tests pass a counter.
     const cacheBuster = opts.cacheBuster ||
       (() => String(Date.now()) + '-' + Math.round((typeof performance !== 'undefined' && performance.now) ? performance.now() : 0));
     if (!_fetch) throw new Error('sheet-store: no fetch available');
 
-    let execUrl = opts.execUrl || null;   // the Apps Script /exec URL (the secret)
-    let token = opts.token || null;        // optional SHARED_TOKEN
+    let relayUrl = opts.relayUrl || null;   // the DEV's relay /exec URL (baked-in)
+    let sheetUrl = opts.sheetUrl || null;   // the USER's own Google Sheet URL
 
-    function setCredentials(url, tok) { execUrl = url || null; token = tok || null; }
-    function isConfigured() { return !!execUrl; }
+    function setCredentials(relay, sheet) {
+      relayUrl = relay || relayUrl;         // relay rarely changes (dev default)
+      sheetUrl = sheet || null;
+    }
+    // Configured = we have both the dev relay AND the user's Sheet URL.
+    function isConfigured() { return !!relayUrl && !!sheetUrl; }
 
     function emptyState() { return { log: [], v: SCHEMA_VERSION }; }
 
-    // Coerce any backend response into the canonical {log, v} shape.
     function normalizeState(data) {
       if (!data || typeof data !== 'object') return emptyState();
       return { log: Array.isArray(data.log) ? data.log : [], v: data.v || SCHEMA_VERSION };
     }
 
-    // Build the endpoint URL: ?project=…&token=…&cb=… (cb on reads only).
+    // Build the relay endpoint: <relay>?sheet_url=…&cb=… (cb on reads only).
     function endpoint(withCacheBust) {
-      if (!execUrl) throw new Error('sheet-store: not configured (no /exec URL)');
-      const u = new URL(execUrl);
-      u.searchParams.set('project', PROJECT);
-      if (token) u.searchParams.set('token', token);
+      if (!relayUrl) throw new Error('sheet-store: not configured (no relay URL)');
+      if (!sheetUrl) throw new Error('sheet-store: not configured (no Sheet URL)');
+      const u = new URL(relayUrl);
+      u.searchParams.set('sheet_url', sheetUrl);
       if (withCacheBust) u.searchParams.set('cb', cacheBuster());
       return u.toString();
     }
 
-    // Fetch JSON, guarding the /exec redirect-to-HTML case. A non-JSON body
-    // (login/error HTML) becomes a clear, actionable error instead of an opaque
-    // SyntaxError that callers swallow into "connected but no data".
+    // Map backend error codes into clear, actionable user-facing messages.
+    function messageForError(code, detail) {
+      switch (code) {
+        case 'no-sheet': return 'Paste your Google Sheet link first.';
+        case 'bad-sheet-url': return 'That Sheet link didn’t open. Copy the full URL from your Sheet’s address bar.';
+        case 'no-access': return 'The relay can’t open that Sheet. In the Sheet: Share → General access → “Anyone with the link” → Editor.';
+        default: return detail || code || 'Sheet request failed.';
+      }
+    }
+
     async function fetchJson(url, init) {
       const res = await _fetch(url, init);
       const text = await res.text();
@@ -76,10 +81,10 @@
       try { data = JSON.parse(text); }
       catch (_) {
         throw new Error(res.ok
-          ? 'The Google Sheet returned a non-JSON response. On mobile this usually means this browser isn’t signed into the Google account that owns the script, or the web-app access isn’t set to “Anyone”.'
-          : 'Google Sheet request failed (HTTP ' + res.status + ').');
+          ? 'The relay returned a non-JSON response (the web-app access may not be set to “Anyone”).'
+          : 'Sheet request failed (HTTP ' + res.status + ').');
       }
-      if (data && data.error) throw new Error(data.error);   // backend {error:"unauthorized"} etc.
+      if (data && data.error) throw new Error(messageForError(data.error, data.detail));
       return data;
     }
 
@@ -89,21 +94,22 @@
       return { state: normalizeState(data) };
     }
 
-    // Append/replace the event log. The backend dedupes by id and persists the
+    // Append/replace the event log. The relay dedupes by id and persists the
     // union, so sending the full local log is safe (idempotent). text/plain body
     // (NO Content-Type header) keeps the browser from issuing a CORS preflight.
-    // Returns the persisted {log, v}.
     async function appendLog(newLog) {
-      if (!execUrl) throw new Error('sheet-store: not configured (no /exec URL)');
-      const body = JSON.stringify({ log: Array.isArray(newLog) ? newLog : [], v: SCHEMA_VERSION });
+      if (!isConfigured()) throw new Error('sheet-store: not configured');
+      const body = JSON.stringify({
+        sheet_url: sheetUrl,           // also in body so POST works even if the
+        log: Array.isArray(newLog) ? newLog : [], v: SCHEMA_VERSION,   // query is stripped
+      });
       const data = await fetchJson(endpoint(false), { method: 'POST', body });
-      // Backend echoes the persisted state ({log,v}); fall back to what we sent.
       if (data && Array.isArray(data.log)) return normalizeState(data);
       return { log: Array.isArray(newLog) ? newLog : [], v: SCHEMA_VERSION };
     }
 
-    // Verify the URL is reachable + returns parseable state. Returns {ok, count}.
-    async function validateUrl() {
+    // Verify the user's Sheet is reachable + returns parseable state. {ok,count}.
+    async function validate() {
       try {
         const { state } = await read();
         return { ok: true, count: state.log.length };
@@ -111,12 +117,13 @@
     }
 
     return {
-      SCHEMA_VERSION, PROJECT,
+      SCHEMA_VERSION,
       setCredentials, isConfigured, emptyState, normalizeState,
-      read, appendLog, validateUrl,
-      get execUrl() { return execUrl; },
+      read, appendLog, validate,
+      get relayUrl() { return relayUrl; },
+      get sheetUrl() { return sheetUrl; },
     };
   }
 
-  return { makeStore, SCHEMA_VERSION, PROJECT };
+  return { makeStore, SCHEMA_VERSION };
 }));

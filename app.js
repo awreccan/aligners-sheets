@@ -1,9 +1,11 @@
 /*
  * app.js — the "22" PWA controller (Google-Sheets backed, v3).
  *
- * Data source: a private Google Sheet via sheet-store.js (Apps Script web app;
- * no custom server). The wear math lives in WearCore. The flow:
- *   - First run: setup screen collects the Apps Script /exec URL (+ optional token).
+ * Data source (KIT model): the DEV hosts ONE stateless relay (backend/Code.gs).
+ * The USER only pastes their own plain Google Sheet URL. sheet-store.js forwards
+ * that Sheet URL to the relay, which opens the user's Sheet directly. No per-user
+ * Apps Script. The wear math lives in WearCore. The flow:
+ *   - First run: setup screen collects the user's Google Sheet URL.
  *   - Toggle/edit: applyEvent locally (optimistic) -> POST the merged log.
  *   - Load/refresh/visibility/interval: GET the Sheet (cache-busted) -> derive ->
  *     render. Offline: render from the local cache; queue writes; flush later.
@@ -16,17 +18,25 @@
   const TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Los_Angeles';
   const RING_R = 108, RING_CIRC = 2 * Math.PI * RING_R;
 
+  // DEV-SET, once: the generic stateless Sheets relay this app talks to. It stores
+  // NO data — the user's Sheet URL is sent per request; the relay opens THAT Sheet.
+  // The dev deploys the relay once and hardcodes its /exec URL here so users never
+  // touch Apps Script. (Empty until the dev bakes it in post-deploy.)
+  const DEFAULT_RELAY_URL = 'https://script.google.com/macros/s/AKfycbwftbEkA6ADduGHB_wpB4P8eHoyXb0yYJObl3mtIoM9fmqsXMmooImxDj6poDpenFnMKg/exec';
+
   // ---- persistent settings + offline cache --------------------------------
   const LS = {
-    url: 'aligners.sheetUrl', token: 'aligners.sheetToken',
+    relay: 'aligners.relayUrl',      // dev relay URL (usually DEFAULT_RELAY_URL)
+    sheet: 'aligners.sheetUrl',      // the user's OWN Google Sheet URL
     log: 'aligners.log.v1', queueDirty: 'aligners.dirty',
   };
   const get = (k) => localStorage.getItem(k);
   const set = (k, v) => localStorage.setItem(k, v);
   const loadLocalLog = () => { try { return JSON.parse(get(LS.log)) || []; } catch (_) { return []; } };
   const saveLocalLog = (log) => set(LS.log, JSON.stringify(log));
+  const relayUrl = () => (get(LS.relay) || DEFAULT_RELAY_URL || '').trim();
 
-  let store = SheetStore.makeStore({ execUrl: get(LS.url), token: get(LS.token) });
+  let store = SheetStore.makeStore({ relayUrl: relayUrl(), sheetUrl: get(LS.sheet) });
   let online = true, snap = null, tickTimer = null, pushing = false;
 
   const $ = (id) => document.getElementById(id);
@@ -35,7 +45,7 @@
   ['toggle','ringFill','stateLabel','bigValue','bigCaption','actionHint','wornToday','outToday',
    'targetLabel','historyStrip','conn','lastSync','settingsBtn','shortcutHelp','deployHelp',
    'editToggle','editPanel','editType','editTime','editAdd','eventList',
-   'setupUrl','setupToken','setupConnect','setupStatus'
+   'setupUrl','setupConnect','setupStatus'
   ].forEach(id => els[id] = $(id));
 
   // ---- formatting ----
@@ -49,17 +59,18 @@
 
   // ---- setup flow ----------------------------------------------------------
   async function doConnect() {
-    const url = (els.setupUrl.value || '').trim();
-    const token = (els.setupToken.value || '').trim();
-    if (!url) { setupMsg('Paste your Apps Script /exec URL first.', true); return; }
-    if (!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec/.test(url)) {
-      setupMsg('That doesn’t look like a /exec web-app URL. It should end in “/exec”.', true); return;
+    const sheet = (els.setupUrl.value || '').trim();
+    if (!sheet) { setupMsg('Paste your Google Sheet link first.', true); return; }
+    if (!/^https:\/\/docs\.google\.com\/spreadsheets\/d\/.+/.test(sheet)) {
+      setupMsg('That doesn’t look like a Google Sheet link. Open your Sheet and copy the URL from the address bar (it starts with docs.google.com/spreadsheets/d/…).', true); return;
     }
+    const relay = relayUrl();
+    if (!relay) { setupMsg('This app isn’t wired to a relay yet — tell the developer.', true); return; }
     setupMsg('Connecting to your Sheet…');
-    const s = SheetStore.makeStore({ execUrl: url, token: token || null });
-    const v = await s.validateUrl();
-    if (!v.ok) { setupMsg('Couldn’t reach that Sheet: ' + (v.error || 'unknown error'), true); return; }
-    set(LS.url, url); set(LS.token, token);
+    const s = SheetStore.makeStore({ relayUrl: relay, sheetUrl: sheet });
+    const v = await s.validate();
+    if (!v.ok) { setupMsg('Couldn’t open that Sheet: ' + (v.error || 'unknown error'), true); return; }
+    set(LS.relay, relay); set(LS.sheet, sheet);
     store = s;
     setupMsg('Connected — found ' + v.count + ' events. Starting…');
     await enterApp();
@@ -259,9 +270,9 @@
   function boot() {
     // setup screen handlers
     els.setupConnect.addEventListener('click', doConnect);
-    els.deployHelp.addEventListener('click', (e) => {
+    if (els.deployHelp) els.deployHelp.addEventListener('click', (e) => {
       e.preventDefault();
-      alert('One-time backend setup:\n\n1. Create a Google Sheet (sheets.new).\n2. Extensions → Apps Script, paste backend/Code.gs.\n3. Deploy → New deployment → Web app.\n   Execute as: Me · Who has access: Anyone.\n4. Copy the Web app URL (ends in /exec) and paste it here.\n\nFull steps + screenshots are in backend/DEPLOY.md.');
+      alert('Setup is just two steps:\n\n1. Make a blank Google Sheet (sheets.new).\n2. Share → General access → “Anyone with the link” → Editor. Copy the link.\n\nPaste that link here. That’s it — no code, no Apps Script.');
     });
 
     // app handlers
@@ -269,13 +280,12 @@
     els.settingsBtn.addEventListener('click', () => {
       // re-open setup to change/replace the URL
       els.setupStatus.textContent = '';
-      els.setupUrl.value = store.execUrl || '';
-      els.setupToken.value = get(LS.token) || '';
+      els.setupUrl.value = store.sheetUrl || get(LS.sheet) || '';
       showSetup();
     });
     els.shortcutHelp.addEventListener('click', (e) => {
       e.preventDefault();
-      alert('Voice + lock-screen reminders use two iOS Shortcuts named “Aligners Off” and “Aligners On”. Each POSTs one event to your Sheet’s /exec URL (the same one you pasted in setup) and creates a native reminder. Build them once from the project’s shortcuts recipe.');
+      alert('Voice + lock-screen reminders use two iOS Shortcuts named “Aligners Off” and “Aligners On”. Each logs one event to your Sheet and creates a native reminder. Build them once from the project’s shortcuts recipe.');
     });
     els.editToggle.addEventListener('click', () => {
       const open = els.editPanel.hidden;
