@@ -74,8 +74,20 @@
       }
     }
 
+    // HARD TIMEOUT: without it a hung relay fetch never settles, so the caller's
+    // busy/pushing guard never clears and the toggle button dies permanently.
     async function fetchJson(url, init) {
-      const res = await _fetch(url, init);
+      const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+      const timer = ctrl ? setTimeout(() => ctrl.abort(), 15000) : null;
+      let res;
+      try {
+        res = await _fetch(url, Object.assign({}, init, ctrl ? { signal: ctrl.signal } : {}));
+      } catch (e) {
+        if (e && e.name === 'AbortError') throw new Error('Sheet request timed out (no response in 15s).');
+        throw e;
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
       const text = await res.text();
       let data;
       try { data = JSON.parse(text); }
