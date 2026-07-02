@@ -70,6 +70,12 @@
     const s = SheetStore.makeStore({ relayUrl: relay, sheetUrl: sheet });
     const v = await s.validate();
     if (!v.ok) { setupMsg('Couldn’t open that Sheet: ' + (v.error || 'unknown error'), true); return; }
+    // If the Sheet URL changed, drop the previous Sheet's cached log immediately —
+    // otherwise the app would render the OLD Sheet's data for ~2s until the new
+    // fetch lands. On a shared device that would briefly show one person's log to
+    // the next. Clearing here means a switch shows a clean empty state, never
+    // another Sheet's data.
+    if ((get(LS.sheet) || '') !== sheet) { saveLocalLog([]); set(LS.queueDirty, '0'); }
     set(LS.relay, relay); set(LS.sheet, sheet);
     store = s;
     setupMsg('Connected — found ' + v.count + ' events. Starting…');
